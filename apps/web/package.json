@@ -1,0 +1,12 @@
+{
+  "name": "@agent-atc/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "build": "node --check server.mjs",
+    "check": "node --check server.mjs",
+    "test": "node --test server.test.mjs"
+  }
+}
