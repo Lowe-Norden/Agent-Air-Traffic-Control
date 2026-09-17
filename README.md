@@ -44,6 +44,14 @@ pnpm check
 pnpm test
 ```
 
+### Run the working prototype
+
+```bash
+pnpm --dir apps/web dev
+```
+
+Open `http://localhost:3000`. The dashboard demonstrates one shared airspace across Codex, Claude Code, Cursor, and DeepSeek sessions, including an actionable cross-agent collision. It is a local coordinator/UI proof; the native agent adapters and filesystem daemon remain the next implementation layer.
+
 ## Design principles
 
 - **No human status reporting.** Agents and local observation maintain state.
@@ -60,4 +68,3 @@ The project is in specification and foundation stage. Please read [CONTRIBUTING.
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-
