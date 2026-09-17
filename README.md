@@ -50,7 +50,7 @@ pnpm test
 pnpm --dir apps/web dev
 ```
 
-Open `http://localhost:3000`. The dashboard demonstrates one shared airspace across Codex, Claude Code, Cursor, and DeepSeek sessions, including an actionable cross-agent collision. It is a local coordinator/UI proof; the native agent adapters and filesystem daemon remain the next implementation layer.
+Open `http://localhost:3000`. The dashboard is a read-only airspace and event log across Codex, Claude Code, Cursor, and DeepSeek sessions. Agent adapters—not people—publish task and file metadata. Before an edit, an adapter calls ATC's agent-facing `POST /api/agent/check-write`; an active conflicting scope receives a 409 deny response plus model-ready collision context. It is a local coordinator/UI proof; the native agent adapters and filesystem daemon remain the next implementation layer.
 
 ## Design principles
 
