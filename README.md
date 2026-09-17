@@ -44,6 +44,16 @@ pnpm check
 pnpm test
 ```
 
+## Plug-and-play foundation
+
+```bash
+node packages/cli/cli.mjs install
+node packages/cli/cli.mjs enable
+node packages/cli/cli.mjs doctor
+```
+
+The installer plans one global developer-machine integration; repository activation keeps `.atc/` local and ignored by Git. See [docs/onboarding.md](docs/onboarding.md).
+
 ### Run the working prototype
 
 ```bash
