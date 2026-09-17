@@ -1,0 +1,8 @@
+{
+  "name": "@agent-atc/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "atc": "./cli.mjs" },
+  "scripts": { "build": "node --check cli.mjs", "check": "node --check cli.mjs", "test": "node --test cli.test.mjs" }
+}
