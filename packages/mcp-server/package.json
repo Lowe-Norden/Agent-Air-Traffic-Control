@@ -1,0 +1,12 @@
+{
+  "name": "@agent-atc/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "agent-atc-mcp": "./server.mjs" },
+  "scripts": {
+    "build": "node --check server.mjs",
+    "check": "node --check server.mjs",
+    "test": "node --test server.test.mjs"
+  }
+}

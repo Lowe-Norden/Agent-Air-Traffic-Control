@@ -1,33 +1,66 @@
-# Plug-and-play onboarding
+# Connect a project
 
-ATC is a developer-machine integration, not a repository-management application.
+ATC is a local developer-machine integration. A project is connected once; every compatible coding agent then uses the same MCP contract and sees the same live airspace.
 
-## The experience
+## 1. Prepare ATC
+
+From the ATC checkout:
 
 ```bash
-npx agent-atc install
-cd repository-that-needs-coordination
-atc enable
+pnpm install
+node packages/cli/cli.mjs install
 ```
 
-`install` happens once per developer. It detects installed harnesses, registers one shared local MCP server, installs the strongest available lifecycle adapter, and configures automatic daemon startup.
+The install command detects known agent CLIs and explains their honest protection level. It does not upload or register the repository anywhere.
 
-`enable` happens once per repository. It creates `.atc/config.json` locally and adds `.atc/` to `.gitignore`; nothing about ATC setup needs to be committed. ATC identifies the repository from its normalized Git remote, then discovers active branches and worktrees automatically.
+## 2. Enable a Git project
 
-## Universal behavior
+Run the CLI from the project to coordinate:
 
-Every adapter implements the same contract:
+```bash
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs enable
+```
 
-1. announce session and capabilities;
-2. register agent-generated intent;
-3. publish observed file activity;
-4. ask ATC before a write or scope expansion;
-5. obey `allow`, `warn`, or `deny`;
-6. renew leases and close the task automatically.
+This creates:
 
-The dashboard only observes this activity. Humans do not claim paths, update statuses, resolve collisions, or assign work there.
+- `.atc/config.json` with a stable repository ID derived from the Git remote;
+- `.atc/mcp.json` with the exact local MCP process configuration; and
+- `.atc/` in `.gitignore`.
 
-## Honest capability levels
+The directory is deliberately local and must not be committed.
 
-Native pre-write hooks can enforce an ATC `deny`. MCP-only harnesses receive the same context and must cooperate. Filesystem observation catches work for unknown or partially integrated agents shortly after it happens. ATC must show the actual protection level, never claim universal prevention.
+## 3. Connect coding agents
 
+Print the MCP entry:
+
+```bash
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect
+```
+
+Add the `agent-air-traffic-control` server from that JSON to each MCP-capable agent. The command is portable across Codex, Claude Code, Cursor, and custom clients that accept the standard `command`, `args`, and `env` server shape.
+
+ATC starts automatically on the first tool call. You can also run the service explicitly with `atc start`. The dashboard is at `http://127.0.0.1:3000` and binds only to loopback by default.
+
+## 4. Agent operating loop
+
+Agent instructions should require:
+
+1. call `begin_task` before editing;
+2. call `check_write` immediately before each edit;
+3. obey a denial and use `message_agent` to coordinate;
+4. call `heartbeat` during work lasting more than one minute; and
+5. call `complete_task` when finished.
+
+`begin_task` returns all active work and relevant messages, so each new agent starts with shared awareness. `message_agent` can address a session ID or `broadcast`.
+
+## Diagnostics
+
+```bash
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs doctor
+```
+
+Doctor reports whether the current project is connected, whether its daemon is live, which agent CLIs are detected, and the protection each adapter can actually provide.
+
+## Security and privacy
+
+The daemon binds to `127.0.0.1`. Its persisted state contains repository identity, agent/user labels, branch/worktree names, declared scopes, file paths, task summaries, coordination messages, timestamps, and decisions. It does not accept or persist file content, prompts, transcripts, environment variables, secrets, or command output.
