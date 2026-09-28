@@ -21,3 +21,22 @@ test("agents share airspace, messages, and deterministic write decisions", async
   assert.equal(store.checkWrite({ sessionId: beta.session.id, path: "src/api/router.ts" }).decision, "allow");
   await store.writeQueue;
 });
+
+test("same-named agents retain distinct sessions and GitHub account labels", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atc-identities-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = await new AtcState({ repository: { id: "repo_identity", name: "test", root }, statePath: join(root, "state.json") }).load();
+  const first = store.begin({ agent: "codex", agentName: "Builder", user: "Nicolas", githubAccount: "@builder-one", summary: "API", scopes: ["src/api/**"] });
+  const second = store.begin({ agent: "claude-code", agentName: "Builder", user: "David", githubAccount: "builder-two[bot]", summary: "UI", scopes: ["src/ui/**"] });
+  assert.notEqual(first.session.id, second.session.id);
+  assert.deepEqual(store.snapshot().sessions.map(({ agent, agentName, user, githubAccount }) => ({ agent, agentName, user, githubAccount })), [
+    { agent: "codex", agentName: "Builder", user: "Nicolas", githubAccount: "builder-one" },
+    { agent: "claude-code", agentName: "Builder", user: "David", githubAccount: "builder-two[bot]" },
+  ]);
+  const denied = store.checkWrite({ sessionId: second.session.id, path: "src/api/router.ts" });
+  assert.match(denied.agentContext, /Nicolas \/ Builder \(@builder-one\)/);
+  assert.equal(store.context(first.session.id).activeWork.length, 2);
+  await store.writeQueue;
+  const reloaded = await new AtcState({ repository: store.repository, statePath: join(root, "state.json") }).load();
+  assert.equal(reloaded.snapshot().sessions[1].githubAccount, "builder-two[bot]");
+});

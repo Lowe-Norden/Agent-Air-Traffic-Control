@@ -9,7 +9,12 @@ const overlaps = (scope, path) => {
   const right = normalizePath(path);
   return left === right || right.startsWith(`${left}/`) || left.startsWith(`${right}/`);
 };
-const displayName = (session) => `${session?.user ?? "Unknown"} / ${session?.agent ?? "Agent"}`;
+const displayName = (session) => `${session?.user ?? "Unknown"} / ${session?.agentName || session?.agent || "Agent"}${session?.githubAccount ? ` (@${session.githubAccount})` : ""}`;
+const githubAccount = (value) => {
+  const login = String(value || "").trim().replace(/^@/, "");
+  if (login && !/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?(?:\[bot\])?$/i.test(login)) throw Object.assign(new Error("githubAccount must be a GitHub login"), { statusCode: 400 });
+  return login || null;
+};
 const blank = (repository) => ({ version: 1, repository, sequence: 0, sessions: [], tasks: [], messages: [], collisions: [], events: [] });
 
 export class AtcState {
@@ -80,9 +85,9 @@ export class AtcState {
     const timestamp = this.now().toISOString();
     const id = input.sessionId || `ses_${randomUUID()}`;
     let session = this.data.sessions.find((item) => item.id === id);
-    const values = { id, repositoryId: this.repository.id, agent: String(input.agent || "unknown"), user: String(input.user || "local developer"), branch: String(input.branch || "unknown"), worktree: String(input.worktree || "."), capabilities: input.capabilities || { mcp: true, preWrite: false, postWrite: false }, status: "active", startedAt: session?.startedAt || timestamp, lastHeartbeatAt: timestamp };
+    const values = { id, repositoryId: this.repository.id, agent: String(input.agent || "unknown").slice(0, 80), agentName: String(input.agentName || input.agent || "Agent").slice(0, 80), user: String(input.user || "local developer").slice(0, 80), githubAccount: githubAccount(input.githubAccount), branch: String(input.branch || "unknown"), worktree: String(input.worktree || "."), capabilities: input.capabilities || { mcp: true, preWrite: false, postWrite: false }, status: "active", startedAt: session?.startedAt || timestamp, lastHeartbeatAt: timestamp };
     if (session) Object.assign(session, values); else this.data.sessions.push(session = values);
-    this.emit("session.started", id, { agent: session.agent, user: session.user, branch: session.branch });
+    this.emit("session.started", id, { agent: session.agent, agentName: session.agentName, user: session.user, githubAccount: session.githubAccount, branch: session.branch });
     return session;
   }
 

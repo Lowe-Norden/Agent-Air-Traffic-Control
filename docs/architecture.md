@@ -38,7 +38,7 @@ The UI loads a consistent snapshot and then listens for server-sent events. It s
 
 ### Privacy boundary
 
-Allowed state includes repository identity, agent/user labels, task summaries, relative file scopes and paths, branch/worktree names, capabilities, coordination messages, timestamps, and decisions. Source code, prompts, transcripts, secrets, environment variables, and command output are outside the protocol.
+Allowed state includes repository identity, agent/developer labels, optional reported GitHub logins, task summaries, relative file scopes and paths, branch/worktree names, capabilities, coordination messages, timestamps, and decisions. Session IDs identify concurrent agents independently of their display names or GitHub logins. Source code, prompts, transcripts, secrets, environment variables, and command output are outside the protocol.
 
 ## Next architecture step
 

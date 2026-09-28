@@ -47,7 +47,7 @@ async function request(path, options = {}) {
 }
 
 const tools = [
-  { name: "begin_task", description: "Announce this agent's task and intended file scopes, then receive the current shared airspace. Call this before editing.", inputSchema: { type: "object", required: ["agent", "summary", "scopes"], properties: { agent: { type: "string", description: "Agent name, such as codex, claude-code, cursor, deepseek, or custom" }, user: { type: "string" }, summary: { type: "string", maxLength: 240 }, scopes: { type: "array", items: { type: "string" }, description: "Repository-relative paths or globs" }, symbols: { type: "array", items: { type: "string" } } } } },
+  { name: "begin_task", description: "Announce this agent's task and intended file scopes, then receive the current shared airspace. Call this before editing. Agent identity can come from arguments or this MCP server's ATC_* environment variables.", inputSchema: { type: "object", required: ["summary", "scopes"], properties: { agent: { type: "string", description: "Harness, such as codex, claude-code, cursor, or custom" }, agentName: { type: "string", description: "This agent's display name, independent of its harness" }, user: { type: "string", description: "Developer operating this agent" }, githubAccount: { type: "string", description: "Optional GitHub login used by this agent; descriptive metadata, not authentication" }, summary: { type: "string", maxLength: 240 }, scopes: { type: "array", items: { type: "string" }, description: "Repository-relative paths or globs" }, symbols: { type: "array", items: { type: "string" } } } } },
   { name: "get_airspace", description: "Read active agents, tasks, scopes, collisions, and coordination messages for this project.", inputSchema: { type: "object", properties: {} } },
   { name: "check_write", description: "Ask ATC immediately before editing a repository-relative path. Obey a deny and coordinate with the conflicting agent.", inputSchema: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
   { name: "heartbeat", description: "Renew the 90-second session lease and receive fresh shared context.", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["active", "idle"] } } } },
@@ -60,7 +60,8 @@ async function callTool(name, args) {
   if (name === "begin_task") {
     const root = gitRoot();
     const branch = (() => { try { return execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() || "detached"; } catch { return "unknown"; } })();
-    const result = await request("/api/tasks/begin", { body: { ...args, sessionId: sessionId || undefined, user: args.user || process.env.USER || process.env.USERNAME || "local developer", branch, worktree: root, capabilities: { mcp: true, preWrite: false, postWrite: false } } });
+    const agent = args.agent || process.env.ATC_HARNESS || "unknown";
+    const result = await request("/api/tasks/begin", { body: { ...args, sessionId: sessionId || undefined, agent, agentName: args.agentName || process.env.ATC_AGENT_NAME || agent, user: args.user || process.env.ATC_DEVELOPER_NAME || process.env.USER || process.env.USERNAME || "local developer", githubAccount: args.githubAccount || process.env.ATC_GITHUB_ACCOUNT || null, branch, worktree: root, capabilities: { mcp: true, preWrite: false, postWrite: false } } });
     sessionId = result.session.id;
     return result;
   }

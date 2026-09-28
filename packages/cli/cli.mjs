@@ -44,8 +44,16 @@ function readConfig() {
 function connect() {
   const { root } = readConfig(), path = join(root, ".atc", "mcp.json");
   if (!existsSync(path)) throw new Error("MCP config is missing. Run `atc enable` again.");
-  console.log(readFileSync(path, "utf8").trim());
-  console.error("\nAdd this server to any MCP-capable coding agent. The server starts ATC automatically and identifies this repository from the agent's working directory.");
+  const options = { "--harness": "ATC_HARNESS", "--agent-name": "ATC_AGENT_NAME", "--developer": "ATC_DEVELOPER_NAME", "--github-account": "ATC_GITHUB_ACCOUNT" };
+  const entry = JSON.parse(readFileSync(path, "utf8"));
+  const env = entry.mcpServers["agent-air-traffic-control"].env;
+  for (let index = 3; index < process.argv.length; index++) {
+    const key = options[process.argv[index]];
+    if (!key || !process.argv[index + 1] || process.argv[index + 1].startsWith("--")) throw new Error("Usage: atc connect [--harness codex|claude-code] [--agent-name NAME] [--developer NAME] [--github-account LOGIN]");
+    env[key] = process.argv[++index];
+  }
+  console.log(JSON.stringify(entry, null, 2));
+  console.error("\nAdd this entry to the chosen MCP agent. Each agent process has its own session ID; the supplied name and GitHub login are display metadata, not GitHub authentication.");
 }
 
 async function doctor() {
