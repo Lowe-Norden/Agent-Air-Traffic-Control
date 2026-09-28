@@ -85,7 +85,7 @@ export class AtcState {
     const timestamp = this.now().toISOString();
     const id = input.sessionId || `ses_${randomUUID()}`;
     let session = this.data.sessions.find((item) => item.id === id);
-    const values = { id, repositoryId: this.repository.id, agent: String(input.agent || "unknown").slice(0, 80), agentName: String(input.agentName || input.agent || "Agent").slice(0, 80), user: String(input.user || "local developer").slice(0, 80), githubAccount: githubAccount(input.githubAccount), branch: String(input.branch || "unknown"), worktree: String(input.worktree || "."), capabilities: input.capabilities || { mcp: true, preWrite: false, postWrite: false }, status: "active", startedAt: session?.startedAt || timestamp, lastHeartbeatAt: timestamp };
+    const values = { id, repositoryId: this.repository.id, ...(input.principalId ? { principalId: input.principalId } : {}), agent: String(input.agent || "unknown").slice(0, 80), agentName: String(input.agentName || input.agent || "Agent").slice(0, 80), user: String(input.user || "local developer").slice(0, 80), githubAccount: githubAccount(input.githubAccount), branch: String(input.branch || "unknown"), worktree: String(input.worktree || "."), capabilities: input.capabilities || { mcp: true, preWrite: false, postWrite: false }, status: "active", startedAt: session?.startedAt || timestamp, lastHeartbeatAt: timestamp };
     if (session) Object.assign(session, values); else this.data.sessions.push(session = values);
     this.emit("session.started", id, { agent: session.agent, agentName: session.agentName, user: session.user, githubAccount: session.githubAccount, branch: session.branch });
     return session;

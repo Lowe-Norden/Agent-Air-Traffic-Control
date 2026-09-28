@@ -42,10 +42,10 @@ function readConfig() {
 }
 
 function connect() {
-  const { root } = readConfig(), path = join(root, ".atc", "mcp.json");
-  if (!existsSync(path)) throw new Error("MCP config is missing. Run `atc enable` again.");
+  const root = gitRoot(), path = join(root, ".atc", "mcp.json"), team = existsSync(join(root, ".atc-team.json"));
+  if (!team && !existsSync(path)) throw new Error("MCP config is missing. Run `atc enable` or `atc team join` first.");
   const options = { "--harness": "ATC_HARNESS", "--agent-name": "ATC_AGENT_NAME", "--developer": "ATC_DEVELOPER_NAME", "--github-account": "ATC_GITHUB_ACCOUNT" };
-  const entry = JSON.parse(readFileSync(path, "utf8"));
+  const entry = team ? { mcpServers: { "agent-air-traffic-control": { command: process.execPath, args: [mcpPath], env: {} } } } : JSON.parse(readFileSync(path, "utf8"));
   const env = entry.mcpServers["agent-air-traffic-control"].env;
   for (let index = 3; index < process.argv.length; index++) {
     const key = options[process.argv[index]];
@@ -58,6 +58,23 @@ function connect() {
 
 async function doctor() {
   console.log("ATC diagnostics\n");
+  let root;
+  try { root = gitRoot(); } catch {}
+  if (root && existsSync(join(root, ".atc-team.json"))) {
+    const { readManifest } = await import("../team-server/config.mjs");
+    const manifest = await readManifest(root);
+    console.log(`Team project          ✓ ${manifest.repository.name} (${manifest.repository.id})`);
+    console.log(`Shared coordinator    ${manifest.coordinator.url}`);
+    try {
+      const { teamCredential } = await import("./team.mjs");
+      const { credential } = await teamCredential(root);
+      const response = await fetch(`${manifest.coordinator.url}/api/snapshot`, { headers: { authorization: `Bearer ${credential.token}` } });
+      console.log(`Developer             ${credential.developer}`);
+      console.log(`Team airspace         ${response.ok ? "✓ connected" : `✗ HTTP ${response.status}`}`);
+    } catch (error) { console.log(`Team airspace         ✗ ${error.message}; run atc team join`); }
+    for (const item of detected()) console.log(`${item.label.padEnd(21)}${item.detected ? "detected; verify MCP registration" : "not detected"}`);
+    return;
+  }
   let connected = false, config;
   try { ({ config } = readConfig()); connected = true; } catch {}
   console.log(`Connected project     ${connected ? `✓ ${config.repository.name} (${config.repository.id})` : "✗ run atc enable"}`);
@@ -65,10 +82,13 @@ async function doctor() {
   for (const item of detected()) console.log(`${item.label.padEnd(21)}${item.detected ? "✓ detected" : "– not detected"}  ${item.protection}`);
 }
 
-function install() {
-  console.log("Agent Air Traffic Control is ready on this machine.\n");
-  for (const item of detected()) console.log(`${item.detected ? "✓" : "–"} ${item.label}: ${item.protection}`);
-  console.log("\nIn each project, run: atc enable\nThen add the generated .atc/mcp.json entry to your coding agent. No source code or prompts leave the machine.");
+async function install() {
+  const args = process.argv.slice(3), value = (key) => args[args.indexOf(key) + 1];
+  const { installHarnesses } = await import("./install.mjs");
+  const dryRun = args.includes("--dry-run"), plan = installHarnesses({ developer: args.includes("--developer") ? value("--developer") : undefined, only: args.includes("--only") ? value("--only") : undefined, dryRun });
+  for (const item of plan) console.log(`${item.detected ? dryRun ? "would connect" : "connected" : "not detected"} ${item.harness} for ${item.developer}`);
+  if (dryRun) console.log("No harness configuration was changed.");
+  else console.log("Agent MCP registration is complete. Join a team project once per developer machine; agents then discover its tracked manifest.");
 }
 
 async function start() {
@@ -79,10 +99,11 @@ async function start() {
 
 const command = process.argv[2] || "doctor";
 try {
-  if (command === "install") install();
+  if (command === "install") await install();
+  else if (command === "team") { const { runTeam } = await import("./team.mjs"); await runTeam(gitRoot(), process.argv.slice(3)); }
   else if (command === "enable") enable();
   else if (command === "connect") connect();
   else if (command === "doctor") await doctor();
   else if (command === "start") await start();
-  else { console.error("Usage: atc <install|enable|connect|doctor|start>"); process.exitCode = 1; }
+  else { console.error("Usage: atc <install|team|enable|connect|doctor|start>"); process.exitCode = 1; }
 } catch (error) { console.error(`ATC: ${error.message}`); process.exitCode = 1; }

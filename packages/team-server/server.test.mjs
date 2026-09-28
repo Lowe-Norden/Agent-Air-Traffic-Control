@@ -1,0 +1,63 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initTeam } from "../cli/team.mjs";
+import { createTeamServer } from "./server.mjs";
+
+const post = async (url, path, value, token) => {
+  const response = await fetch(`${url}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(value) });
+  return { status: response.status, value: await response.json(), headers: response.headers };
+};
+
+test("two developers share one authenticated persistent airspace", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "atc-team-server-"));
+  execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/example/norden-ai-platform.git"], { cwd: root });
+  initTeam(root, "http://127.0.0.1:3200");
+  let server = await createTeamServer({ root });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((done) => server.close(done));
+    await server.store.writeQueue;
+    await server.auth.writeQueue;
+    await rm(root, { recursive: true, force: true });
+  });
+  let url = `http://127.0.0.1:${server.address().port}`;
+  const admin = (await readFile(join(root, ".atc", "team-admin-token"), "utf8")).trim();
+  const inviteLowe = await post(url, "/api/admin/invites", { developer: "Lowe" }, admin);
+  const inviteDavid = await post(url, "/api/admin/invites", { developer: "David" }, admin);
+  assert.equal(inviteLowe.status, 200);
+  const lowe = await post(url, "/api/team/join", { code: inviteLowe.value.code });
+  const david = await post(url, "/api/team/join", { code: inviteDavid.value.code });
+  assert.equal((await post(url, "/api/team/join", { code: inviteDavid.value.code })).status, 403);
+  const a = await post(url, "/api/tasks/begin", { agent: "codex", agentName: "Atlas", user: "Forged", summary: "API", scopes: ["src/api/**"] }, lowe.value.token);
+  const b = await post(url, "/api/tasks/begin", { agent: "claude-code", agentName: "Scout", summary: "UI", scopes: ["src/ui/**"] }, david.value.token);
+  assert.equal(a.value.session.user, "Lowe");
+  assert.equal(b.value.session.user, "David");
+  assert.equal((await post(url, "/api/sessions/heartbeat", { sessionId: a.value.session.id }, david.value.token)).status, 403);
+  const conflict = await post(url, "/api/agent/check-write", { sessionId: b.value.session.id, path: "src/api/router.ts" }, david.value.token);
+  assert.equal(conflict.status, 409);
+  assert.match(conflict.value.agentContext, /Lowe \/ Atlas/);
+  await post(url, "/api/agent/message", { sessionId: b.value.session.id, to: a.value.session.id, text: "Can we coordinate?" }, david.value.token);
+  assert.equal((await fetch(`${url}/api/snapshot`)).status, 401);
+  const login = await post(url, "/api/browser/login", { token: lowe.value.token });
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  assert.equal((await fetch(`${url}/api/snapshot`, { headers: { cookie } })).status, 200);
+  const snapshot = await fetch(`${url}/api/snapshot`, { headers: { authorization: `Bearer ${david.value.token}` } }).then((response) => response.json());
+  assert.equal(snapshot.sessions.length, 2);
+  assert.equal(snapshot.messages.at(-1).text, "Can we coordinate?");
+  await server.store.writeQueue;
+  server.closeAllConnections();
+  await new Promise((done) => server.close(done));
+  server = await createTeamServer({ root });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  url = `http://127.0.0.1:${server.address().port}`;
+  const restarted = await fetch(`${url}/api/snapshot`, { headers: { authorization: `Bearer ${david.value.token}` } }).then((response) => response.json());
+  assert.equal(restarted.sessions.length, 2);
+  assert.equal(restarted.collisions.length, 1);
+});

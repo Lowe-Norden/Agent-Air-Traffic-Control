@@ -40,6 +40,21 @@ The UI loads a consistent snapshot and then listens for server-sent events. It s
 
 Allowed state includes repository identity, agent/developer labels, optional reported GitHub logins, task summaries, relative file scopes and paths, branch/worktree names, capabilities, coordination messages, timestamps, and decisions. Session IDs identify concurrent agents independently of their display names or GitHub logins. Source code, prompts, transcripts, secrets, environment variables, and command output are outside the protocol.
 
-## Next architecture step
+## Shared team coordinator
 
-The team coordinator milestone will add authenticated multi-machine synchronization, SQLite retention, ordered WebSocket resume, and offline reconciliation. The local daemon and MCP contract remain the edge interface.
+```text
+Codex / Claude Code / Cursor on each developer machine
+                     | stdio MCP
+                     v
+               ATC MCP adapter
+                     | authenticated HTTPS
+                     v
+        One self-hosted coordinator -------- .atc/team-airspace.json
+                     | snapshot + server-sent events
+                     v
+                Read-only Flight Radar
+```
+
+The tracked `.atc-team.json` selects the coordinator and canonical Git repository identity. A one-use invitation creates a developer credential outside Git. The server binds every session to that authenticated developer, stores token hashes, and gives browser users a separate read-only session. It persists one ordered materialized state and the most recent 1,000 events with atomic file replacement. A single coordinator process must own the state directory; horizontal scaling and offline reconciliation are not implemented. If the coordinator is unavailable, MCP reports that no decision was obtained.
+
+Native pre-write hooks, credential revocation/rotation, and a managed service installer remain separate improvements. MCP alone relies on the agent to call `check_write` and obey denials.

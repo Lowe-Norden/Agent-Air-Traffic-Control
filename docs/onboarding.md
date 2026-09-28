@@ -1,6 +1,6 @@
 # Connect a project
 
-ATC is a local developer-machine integration. A project is connected once; every compatible coding agent then uses the same MCP contract and sees the same live airspace.
+ATC has a shared team mode and a local single-machine mode. Start with [team setup](../README.md#team-setup) when multiple developers need one airspace and Flight Radar. This page describes local mode.
 
 ## 1. Prepare ATC
 
@@ -8,10 +8,10 @@ From the ATC checkout:
 
 ```bash
 pnpm install
-node packages/cli/cli.mjs install
+node packages/cli/cli.mjs install --developer YOUR_NAME
 ```
 
-The install command detects known agent CLIs and explains their honest protection level. It does not upload or register the repository anywhere.
+The install command registers the MCP adapter in detected Codex and Claude Code CLIs and Cursor's user MCP configuration. It does not upload or register the repository anywhere.
 
 ## 2. Enable a Git project
 
@@ -62,7 +62,7 @@ Agent instructions should require:
 
 `begin_task` returns all active work and relevant messages, so each new agent starts with shared awareness. `message_agent` can address a session ID or `broadcast`.
 
-The current daemon is local to one developer machine. Agents on the same machine and enabled repository share its state; David's separate machine has its own state until a shared coordinator and sync are implemented. MCP calls are cooperative: an agent must call the tools to receive guidance, and native pre-write hooks are still planned.
+The local daemon serves one developer machine. For David's separate machine, use the [shared coordinator](../README.md#team-setup). MCP calls are cooperative: an agent must call the tools to receive guidance. Native pre-write hooks are still planned.
 
 ## Diagnostics
 

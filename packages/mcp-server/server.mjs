@@ -3,18 +3,52 @@ import { execFileSync, spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { credentialPath, manifestName, readManifest } from "../team-server/config.mjs";
 
 const port = Number(process.env.ATC_PORT || 3000);
 const baseUrl = process.env.ATC_URL || `http://127.0.0.1:${port}`;
 let sessionId = process.env.ATC_SESSION_ID || null;
+let heartbeatTimer = null;
+let projectRoot = null, rootsSupported = false, nextClientRequestId = 10_000;
+const pendingClientRequests = new Map();
 
 function gitRoot(cwd = process.cwd()) {
   try { return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
   catch { throw new Error("ATC MCP must run inside an enabled Git repository."); }
 }
 
+async function resolveProjectRoot() {
+  if (projectRoot) return projectRoot;
+  for (const candidate of [process.env.ATC_PROJECT_ROOT, process.env.CLAUDE_PROJECT_DIR, process.cwd()].filter(Boolean)) {
+    try { return projectRoot = gitRoot(candidate); } catch {}
+  }
+  if (rootsSupported) {
+    const id = nextClientRequestId++;
+    const roots = await new Promise((resolve) => {
+      const timer = setTimeout(() => { pendingClientRequests.delete(id); resolve(null); }, 2000);
+      pendingClientRequests.set(id, (result) => { clearTimeout(timer); resolve(result); });
+      send({ jsonrpc: "2.0", id, method: "roots/list", params: {} });
+    });
+    for (const item of roots?.roots || []) {
+      try { return projectRoot = gitRoot(fileURLToPath(item.uri)); } catch {}
+    }
+  }
+  throw new Error("ATC could not find a Git project root. Launch the agent in the repository or set ATC_PROJECT_ROOT.");
+}
+
 async function project() {
-  const root = gitRoot(), configPath = join(root, ".atc", "config.json");
+  const root = await resolveProjectRoot();
+  try {
+    await access(join(root, manifestName));
+    const manifest = await readManifest(root);
+    const credential = JSON.parse(await readFile(credentialPath(manifest.repository.id), "utf8"));
+    if (credential.repositoryId !== manifest.repository.id || credential.coordinator !== manifest.coordinator.url || !credential.token) throw new Error("ATC team credential does not match this repository. Run `atc team join`.");
+    return { root, manifest, credential };
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    if (await access(join(root, manifestName)).then(() => true, () => false)) throw new Error("ATC team credential missing. Run `atc team join`.");
+  }
+  const configPath = join(root, ".atc", "config.json");
   await access(configPath).catch(() => { throw new Error("This project is not connected. Run `atc enable` first."); });
   return { root, config: JSON.parse(await readFile(configPath, "utf8")) };
 }
@@ -39,8 +73,13 @@ async function ensureDaemon() {
 }
 
 async function request(path, options = {}) {
-  await ensureDaemon();
-  const response = await fetch(`${baseUrl}${path}`, options.body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(options.body) } : undefined);
+  const connected = await project();
+  if (!connected.manifest) await ensureDaemon();
+  const url = connected.manifest?.coordinator.url || baseUrl;
+  const headers = { ...(connected.credential ? { authorization: `Bearer ${connected.credential.token}` } : {}), ...(options.body ? { "content-type": "application/json" } : {}) };
+  let response;
+  try { response = await fetch(`${url}${path}`, { method: options.body ? "POST" : "GET", headers, ...(options.body ? { body: JSON.stringify(options.body) } : {}) }); }
+  catch { throw new Error("ATC coordinator unavailable; no write decision was obtained."); }
   const value = await response.json();
   if (!response.ok && response.status !== 409) throw new Error(value.error || `ATC HTTP ${response.status}`);
   return value;
@@ -58,24 +97,30 @@ const tools = [
 function requireSession() { if (!sessionId) throw new Error("Call begin_task before using this tool."); return sessionId; }
 async function callTool(name, args) {
   if (name === "begin_task") {
-    const root = gitRoot();
+    const root = (await project()).root;
     const branch = (() => { try { return execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() || "detached"; } catch { return "unknown"; } })();
     const agent = args.agent || process.env.ATC_HARNESS || "unknown";
     const result = await request("/api/tasks/begin", { body: { ...args, sessionId: sessionId || undefined, agent, agentName: args.agentName || process.env.ATC_AGENT_NAME || agent, user: args.user || process.env.ATC_DEVELOPER_NAME || process.env.USER || process.env.USERNAME || "local developer", githubAccount: args.githubAccount || process.env.ATC_GITHUB_ACCOUNT || null, branch, worktree: root, capabilities: { mcp: true, preWrite: false, postWrite: false } } });
     sessionId = result.session.id;
+    if (!heartbeatTimer) {
+      heartbeatTimer = setInterval(() => {
+        if (sessionId) request("/api/sessions/heartbeat", { body: { sessionId, status: "active" } }).catch(() => {});
+      }, 30_000);
+      heartbeatTimer.unref();
+    }
     return result;
   }
   if (name === "get_airspace") return request(`/api/agent/context?sessionId=${encodeURIComponent(sessionId || "")}`);
   if (name === "check_write") return request("/api/agent/check-write", { body: { ...args, sessionId: requireSession() } });
   if (name === "heartbeat") return request("/api/sessions/heartbeat", { body: { ...args, sessionId: requireSession() } });
   if (name === "message_agent") return request("/api/agent/message", { body: { ...args, sessionId: requireSession(), to: args.to || "broadcast" } });
-  if (name === "complete_task") { const result = await request("/api/tasks/complete", { body: { ...args, sessionId: requireSession() } }); sessionId = null; return result; }
+  if (name === "complete_task") { const result = await request("/api/tasks/complete", { body: { ...args, sessionId: requireSession() } }); sessionId = null; if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = null; return result; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
 function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`); }
 async function handle(message) {
-  if (message.method === "initialize") return { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "agent-air-traffic-control", version: "0.1.0" }, instructions: "Begin each coding task with begin_task, check_write before editing, coordinate on deny, heartbeat during long tasks, and call complete_task when done." };
+  if (message.method === "initialize") { rootsSupported = !!message.params?.capabilities?.roots; return { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "agent-air-traffic-control", version: "0.1.0" }, instructions: "Begin each coding task with begin_task, check_write before editing, coordinate on deny, and call complete_task when done. ATC renews heartbeats while this MCP process is alive." }; }
   if (message.method === "ping") return {};
   if (message.method === "tools/list") return { tools };
   if (message.method === "tools/call") {
@@ -87,7 +132,7 @@ async function handle(message) {
 
 let buffer = "";
 process.stdin.setEncoding("utf8");
-process.stdin.on("data", async (chunk) => {
+process.stdin.on("data", (chunk) => {
   buffer += chunk;
   while (buffer.includes("\n")) {
     const index = buffer.indexOf("\n"), line = buffer.slice(0, index).trim(); buffer = buffer.slice(index + 1);
@@ -95,7 +140,14 @@ process.stdin.on("data", async (chunk) => {
     let message;
     try { message = JSON.parse(line); } catch { continue; }
     if (message.id === undefined) continue;
-    try { send({ jsonrpc: "2.0", id: message.id, result: await handle(message) }); }
-    catch (error) { send({ jsonrpc: "2.0", id: message.id, error: { code: error.code || -32603, message: error.message } }); }
+    if (!message.method && pendingClientRequests.has(message.id)) { pendingClientRequests.get(message.id)(message.result || null); pendingClientRequests.delete(message.id); continue; }
+    handle(message).then(
+      (result) => send({ jsonrpc: "2.0", id: message.id, result }),
+      (error) => send({ jsonrpc: "2.0", id: message.id, error: { code: error.code || -32603, message: error.message } }),
+    );
   }
+});
+process.stdin.on("end", () => {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (sessionId) request("/api/tasks/complete", { body: { sessionId, summary: "Agent MCP connection closed" } }).catch(() => {});
 });
