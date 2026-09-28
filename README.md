@@ -1,80 +1,77 @@
 # Agent Air Traffic Control
 
-Real-time coordination infrastructure for teams running multiple coding agents against the same codebase.
+Real-time, local-first coordination for teams running multiple coding agents against the same codebase.
 
 > Git tells agents what happened. Agent Air Traffic Control tells them what is happening.
 
-Agent Air Traffic Control (ATC) is an early-stage open-source project. It gives coding agents shared awareness of active work, temporary scope claims, and emerging collisions—without uploading source code or becoming a task manager.
+ATC connects a Git project to one local coordination service. Agents use a universal MCP server to announce work, inspect other active tasks, check a path before editing, exchange coordination messages, and release their scope. Humans get a live, read-only radar and audit log.
 
-## What we are building first
+## Working MVP
 
-The first usable release proves one narrow workflow:
+The repository now contains a complete local vertical slice:
 
-1. Two developers run Codex or Claude Code against the same repository.
-2. Each agent registers its task and expected scope automatically.
-3. Local daemons observe actual file activity and exchange metadata.
-4. ATC detects overlapping work deterministically.
-5. The affected agent receives an actionable warning before, or immediately after, a risky write.
+- `atc enable` creates a private project identity and ready-to-copy MCP configuration;
+- the MCP server starts the local daemon automatically;
+- sessions and task scopes use 90-second renewable leases;
+- `check_write` deterministically denies edits inside another active agent's scope;
+- agents can send direct or broadcast coordination messages;
+- state is persisted atomically in the ignored `.atc/state.json` file;
+- the dashboard updates over server-sent events without polling or seeded demo data; and
+- only metadata is stored—never source, prompts, transcripts, secrets, or command output.
 
-The v0 milestone includes:
+## Quick start
 
-- a shared, versioned TypeScript protocol;
-- short-lived session and scope leases;
-- same-file, path-overlap, and same-symbol collision detection;
-- a local daemon with filesystem and Git observation;
-- a single-process WebSocket coordinator;
-- Codex and Claude Code adapters;
-- a live repository airspace UI;
-- offline, fail-open behavior; and
-- metadata-only synchronization by default.
-
-See [docs/product-spec.md](docs/product-spec.md), [docs/architecture.md](docs/architecture.md), and [docs/roadmap.md](docs/roadmap.md).
-
-## Repository status
-
-This initial commit establishes the product contract and the first executable core: protocol schemas plus a deterministic collision scorer. The coordinator, daemon, adapters, and UI are scaffolded as explicit milestones rather than implied to be complete.
-
-## Development
-
-Prerequisites: Node.js 22+ and pnpm 10+.
+Prerequisites: Node.js 22+, pnpm 10+, and an MCP-capable coding agent.
 
 ```bash
 pnpm install
 pnpm check
 pnpm test
-```
 
-## Plug-and-play foundation
-
-```bash
 node packages/cli/cli.mjs install
-node packages/cli/cli.mjs enable
-node packages/cli/cli.mjs doctor
+cd /path/to/your/project
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs enable
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect
 ```
 
-The installer plans one global developer-machine integration; repository activation keeps `.atc/` local and ignored by Git. See [docs/onboarding.md](docs/onboarding.md).
-
-### Run the working prototype
+Copy the printed `agent-air-traffic-control` MCP server entry into Codex, Claude Code, Cursor, or another MCP client. The first MCP call starts the daemon automatically. To run it explicitly:
 
 ```bash
-pnpm --dir apps/web dev
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs start
 ```
 
-Open `http://localhost:3000`. The dashboard is a read-only airspace and event log across Codex, Claude Code, Cursor, and DeepSeek sessions. Agent adapters—not people—publish task and file metadata. Before an edit, an adapter calls ATC's agent-facing `POST /api/agent/check-write`; an active conflicting scope receives a 409 deny response plus model-ready collision context. It is a local coordinator/UI proof; the native agent adapters and filesystem daemon remain the next implementation layer.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+## Agent contract
+
+Each agent follows the same six-tool loop:
+
+1. `begin_task` with a concise summary and repository-relative scopes.
+2. `get_airspace` when shared context is needed.
+3. `check_write` immediately before changing a file.
+4. `heartbeat` at least once per minute during long tasks.
+5. `message_agent` when a dependency or collision needs coordination.
+6. `complete_task` to close the session and release its scope.
+
+MCP integrations are cooperative: they can return a clear denial and model-ready explanation, but only a native pre-write hook can physically prevent a write. The UI reports the actual capability; it does not claim universal enforcement.
+
+## Development
+
+```bash
+pnpm check
+pnpm test
+pnpm build
+```
+
+See [docs/architecture.md](docs/architecture.md), [docs/onboarding.md](docs/onboarding.md), and [docs/product-spec.md](docs/product-spec.md).
 
 ## Design principles
 
-- **No human status reporting.** Agents and local observation maintain state.
-- **Precision over recall.** Interrupt only for actionable collisions.
+- **No human status reporting.** Agents maintain their own session and task state.
+- **Read-only radar.** The dashboard observes; agents coordinate through ATC.
 - **Leases, not locks.** Claims expire when heartbeats stop.
-- **Fail open.** ATC must never block development because its coordinator is unavailable.
-- **Metadata only.** Source, prompts, transcripts, secrets, and command output stay local.
-- **Capability honesty.** Integrations report the protection they can actually provide.
+- **Fail open.** An unavailable coordinator must not make a repository unusable.
+- **Metadata only.** Repository contents and conversations stay out of ATC state.
+- **Capability honesty.** MCP cooperation and native enforcement are shown distinctly.
 
-## Contributing
-
-The project is in specification and foundation stage. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache-2.0 licensed. See [LICENSE](LICENSE).

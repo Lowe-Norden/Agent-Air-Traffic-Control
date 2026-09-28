@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const protocolVersion = 1 as const;
 
-export const agentTypeSchema = z.enum(["codex", "claude-code", "unknown"]);
+export const agentTypeSchema = z.enum(["codex", "claude-code", "cursor", "deepseek", "custom", "unknown"]);
 export type AgentType = z.infer<typeof agentTypeSchema>;
 
 export const capabilitySetSchema = z.object({
@@ -17,14 +17,7 @@ export const capabilitySetSchema = z.object({
 });
 export type CapabilitySet = z.infer<typeof capabilitySetSchema>;
 
-export const scopeTypeSchema = z.enum([
-  "directory",
-  "file",
-  "symbol",
-  "package",
-  "dependency",
-]);
-
+export const scopeTypeSchema = z.enum(["directory", "file", "symbol", "package", "dependency"]);
 export const scopeClaimSchema = z.object({
   id: z.string().min(1),
   taskId: z.string().min(1),
@@ -63,22 +56,11 @@ export const taskSchema = z.object({
 export type Task = z.infer<typeof taskSchema>;
 
 export const eventTypeSchema = z.enum([
-  "session.started",
-  "session.heartbeat",
-  "session.stale",
-  "session.closed",
-  "task.started",
-  "task.updated",
-  "task.completed",
-  "scope.claimed",
-  "scope.expanded",
-  "scope.released",
-  "file.write",
-  "file.deleted",
-  "collision.detected",
-  "collision.updated",
-  "collision.resolved",
-  "message.sent",
+  "session.started", "session.heartbeat", "session.stale", "session.closed",
+  "task.started", "task.updated", "task.completed",
+  "scope.claimed", "scope.expanded", "scope.released",
+  "file.write", "file.deleted",
+  "collision.detected", "collision.updated", "collision.resolved", "message.sent",
 ]);
 
 export const eventEnvelopeSchema = z.object({
@@ -95,14 +77,7 @@ export const eventEnvelopeSchema = z.object({
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 
 export const collisionReasonSchema = z.object({
-  code: z.enum([
-    "same_file",
-    "same_symbol",
-    "path_overlap",
-    "same_package",
-    "dependency_edge",
-    "recent_writes",
-  ]),
+  code: z.enum(["same_file", "same_symbol", "path_overlap", "same_package", "dependency_edge", "recent_writes"]),
   score: z.number().int().nonnegative(),
   detail: z.string().min(1),
 });
@@ -118,4 +93,3 @@ export const collisionSchema = z.object({
   resolvedAt: z.string().datetime().optional(),
 });
 export type Collision = z.infer<typeof collisionSchema>;
-

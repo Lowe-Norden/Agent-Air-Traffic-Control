@@ -1,57 +1,45 @@
 # Architecture
 
-## Components
+## Working local MVP
 
 ```text
-Coding agent
-  | native adapter + MCP
-  v
-Local daemon ---- local cache / offline queue
-  | metadata events over WebSocket
-  v
-Coordinator ---- append-only repository event log
-  |
-  +---- other daemons
-  +---- live web UI
+Codex / Claude Code / Cursor / custom MCP agent
+                  |
+                  | stdio JSON-RPC
+                  v
+            ATC MCP server
+                  |
+                  | loopback HTTP
+                  v
+        Per-project local daemon -------- .atc/state.json
+                  |
+                  | snapshot + server-sent events
+                  v
+          Read-only radar dashboard
 ```
 
-### Protocol
+### Project identity
 
-The protocol package owns wire schemas, identifiers, event envelopes, snapshots, leases, capabilities, and collision results. All processes consume the same versioned schemas.
+`atc enable` derives a stable ID from the normalized Git remote and writes it to ignored `.atc/config.json`. Branch and worktree are session attributes, not repository identity. Before using an already-running daemon, MCP verifies that the daemon's repository ID matches the current project so two projects cannot silently share an airspace.
+
+### Agent interface
+
+The MCP server is the universal integration surface. Agents announce task intent and scopes, read the airspace, check paths before writes, renew leases, send direct or broadcast messages, and complete work. The same contract works for any MCP client.
+
+MCP is cooperative: an agent receives a strong, model-readable denial, but physical prevention requires a native pre-write hook. Capability metadata keeps this distinction visible.
 
 ### Local daemon
 
-The daemon observes agent lifecycle, filesystem changes, Git state, and dependency relationships. It hosts the local MCP surface, maintains cached airspace state, evaluates low-latency local checks, and queues outbound events offline.
+The daemon owns the repository's ordered event sequence and materialized state. It uses atomic file replacement for persistence, keeps the most recent 1,000 events, and marks sessions stale after 90 seconds without a heartbeat. The API accepts metadata only and binds to loopback by default.
 
-### Coordinator
+### Dashboard
 
-The coordinator authenticates connections, orders repository events, maintains leases, evaluates cross-session collisions, persists the event log, and broadcasts updates. One process and SQLite are sufficient for v0.
+The UI loads a consistent snapshot and then listens for server-sent events. It shows active sessions, tasks, branches, scopes, open collision advisories, agent messages, and the event log. It has no controls that let humans claim work or resolve collisions.
 
-### Adapters
+### Privacy boundary
 
-Adapters translate each coding agent's actual capabilities into a common contract. They negotiate capabilities explicitly; ATC must not claim preventative coverage when only post-write observation is available.
+Allowed state includes repository identity, agent/user labels, task summaries, relative file scopes and paths, branch/worktree names, capabilities, coordination messages, timestamps, and decisions. Source code, prompts, transcripts, secrets, environment variables, and command output are outside the protocol.
 
-### Web UI
+## Next architecture step
 
-The UI loads a consistent snapshot and then subscribes after the snapshot sequence. It derives views from the event stream and never polls for live state.
-
-## Trust boundary
-
-Repository content remains on the developer machine. The coordinator receives an allowlisted event model. Unknown fields are rejected at serialization boundaries, and telemetry is opt-in.
-
-## Ordering and reconnection
-
-The coordinator assigns a monotonically increasing sequence per repository. Clients persist the last applied sequence. On reconnect, a client requests events after that value; if retention cannot satisfy the request, it reloads a snapshot.
-
-## Repository identity
-
-Repository identity is derived from a normalized Git remote fingerprint. Branch and worktree are session attributes, not repository identity.
-
-## Lease lifecycle
-
-Claims have a short TTL renewed by session heartbeats. A missing heartbeat transitions the session through stale to closed and releases its claims. Clients treat server time as authoritative for lease expiry.
-
-## Collision evaluation
-
-Collision detection begins as deterministic, explainable rules. Inputs are active tasks, claims, observed activity, dependency edges, recency, and attribution confidence. Results always contain reasons and support overrides.
-
+The team coordinator milestone will add authenticated multi-machine synchronization, SQLite retention, ordered WebSocket resume, and offline reconciliation. The local daemon and MCP contract remain the edge interface.
