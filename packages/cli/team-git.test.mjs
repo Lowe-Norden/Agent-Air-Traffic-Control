@@ -1,0 +1,41 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { gitRadarRef, readManifest } from "../team-server/config.mjs";
+import { initGitTeam, connectGitTeam } from "./team.mjs";
+
+test("Git team init and connect use a notes ref and local machine profile", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "atc-git-setup-"));
+  const bare = join(base, "remote.git"), root = join(base, "repo"), home = join(base, "atc-home");
+  const remote = "https://github.com/example/norden-ai-platform.git";
+  execFileSync("git", ["init", "--bare", bare], { stdio: "ignore" });
+  execFileSync("git", ["init", root], { stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
+  const saved = Object.fromEntries(["ATC_HOME", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"].map((key) => [key, process.env[key]]));
+  process.env.ATC_HOME = home;
+  process.env.GIT_CONFIG_COUNT = "1";
+  process.env.GIT_CONFIG_KEY_0 = `url.${pathToFileURL(bare).href}.insteadOf`;
+  process.env.GIT_CONFIG_VALUE_0 = remote;
+  t.after(async () => {
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    await rm(base, { recursive: true, force: true });
+  });
+  const manifest = await initGitTeam(root);
+  assert.equal(manifest.git.ref, gitRadarRef);
+  assert.deepEqual(await readManifest(root), manifest);
+  const connected = await connectGitTeam(root, "Lowe");
+  assert.equal(connected.profile.developer, "Lowe");
+  assert.equal(JSON.parse(await readFile(connected.path, "utf8")).machineId, connected.profile.machineId);
+  const again = await connectGitTeam(root, "Lowe");
+  assert.equal(again.profile.machineId, connected.profile.machineId);
+  const refs = execFileSync("git", ["ls-remote", bare], { encoding: "utf8" });
+  assert.match(refs, /refs\/notes\/atc-radar/);
+  assert.doesNotMatch(refs, /refs\/heads\/atc/);
+  assert.rejects(() => initGitTeam(root), /already has an ATC team manifest/);
+  await writeFile(join(root, "local-only.txt"), "not sent to Radar");
+  assert.equal(execFileSync("git", ["-C", root, "status", "--short"], { encoding: "utf8" }).includes("local-only.txt"), true);
+});

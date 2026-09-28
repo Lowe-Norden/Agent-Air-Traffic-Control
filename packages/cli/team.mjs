@@ -2,8 +2,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { canonicalRemote, coordinatorUrl, credentialPath, gitRemote, manifestName, readManifest, repositoryId } from "../team-server/config.mjs";
+import { canonicalRemote, coordinatorUrl, credentialPath, gitProfilePath, gitRadarRef, gitRemote, manifestName, readManifest, repositoryId } from "../team-server/config.mjs";
 import { listenTeam } from "../team-server/server.mjs";
+import { GitRadarStore } from "../git-team/store.mjs";
+import { listenGit } from "../git-team/server.mjs";
 
 const option = (args, name, fallback) => {
   const index = args.indexOf(name);
@@ -57,12 +59,56 @@ export async function teamCredential(root) {
   return { manifest, credential: value };
 }
 
+export async function initGitTeam(root) {
+  const manifestPath = join(root, manifestName);
+  if (existsSync(manifestPath)) throw new Error("This repository already has an ATC team manifest.");
+  const remoteUrl = gitRemote(root);
+  const repository = { id: repositoryId(remoteUrl), name: basename(root), fingerprint: canonicalRemote(remoteUrl) };
+  const manifest = { version: 2, repository, transport: "git", git: { remote: "origin", ref: gitRadarRef } };
+  const store = new GitRadarStore({ root, manifest });
+  await store.initialize("ATC setup");
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
+  return manifest;
+}
+
+export async function connectGitTeam(root, developer) {
+  const manifest = await readManifest(root);
+  if (manifest.version !== 2) throw new Error("This project uses coordinator invitations; run `atc team join`.");
+  developer = String(developer || "").trim().slice(0, 80);
+  if (!developer) throw new Error("Usage: atc team connect --developer NAME");
+  const path = gitProfilePath(manifest.repository.id);
+  let existing;
+  try { existing = JSON.parse(await readFile(path, "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const profile = { version: 1, repositoryId: manifest.repository.id, machineId: existing?.machineId || `machine_${randomUUID()}`, developer };
+  const store = new GitRadarStore({ root, manifest });
+  await store.mutate((data) => {
+    const event = { id: `evt_${randomUUID()}`, sequence: ++data.sequence, repositoryId: manifest.repository.id, timestamp: new Date().toISOString(), type: "machine.connected", payload: { machineId: profile.machineId, developer } };
+    data.events.push(event);
+    if (data.events.length > 300) data.events.splice(0, data.events.length - 300);
+    return { result: profile };
+  }, { developer });
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(profile, null, 2)}\n`, { mode: 0o600 });
+  return { profile, path };
+}
+
 export async function runTeam(root, args) {
   const [command, ...options] = args;
   if (command === "init") {
+    if (option(options, "--transport") === "git") {
+      const manifest = await initGitTeam(root);
+      console.log(`Git-native ATC initialized for ${manifest.repository.name}. Ref: ${manifest.git.ref}\nCommit ${manifestName}. Each developer runs atc team connect --developer NAME.`);
+      return;
+    }
     const manifest = initTeam(root, option(options, "--url"));
     console.log(`ATC team project initialized: ${manifest.repository.name}\nCoordinator: ${manifest.coordinator.url}\nCommit ${manifestName} and .gitignore. Keep .atc/ private. Start the coordinator, then invite each developer.`);
   } else if (command === "serve") {
+    const manifest = await readManifest(root);
+    if (manifest.version === 2) {
+      const server = await listenGit({ root, port: Number(option(options, "--port", "3000")) });
+      console.log(`ATC Git Radar ready at http://127.0.0.1:${server.address().port}`);
+      return;
+    }
     const certPath = option(options, "--cert"), keyPath = option(options, "--key");
     if (!!certPath !== !!keyPath) throw new Error("Provide both --cert and --key for direct TLS.");
     const tls = certPath ? { cert: await readFile(certPath), key: await readFile(keyPath) } : undefined;
@@ -75,12 +121,33 @@ export async function runTeam(root, args) {
   } else if (command === "join") {
     const result = await joinTeam(root, options[0]);
     console.log(`Joined ATC as ${result.developer}. Credential stored outside Git at ${result.path}.`);
+  } else if (command === "connect") {
+    const result = await connectGitTeam(root, option(options, "--developer"));
+    console.log(`Connected to Git-native ATC as ${result.profile.developer}. Profile: ${result.path}. No ATC token was created.`);
   } else if (command === "status") {
+    const currentManifest = await readManifest(root);
+    if (currentManifest.version === 2) {
+      const store = new GitRadarStore({ root, manifest: currentManifest });
+      const state = await store.refresh();
+      console.log(`ATC Git Radar: ${currentManifest.repository.name}\nSequence: ${state.sequence}\nRef: ${currentManifest.git.ref}\nSynced: ${store.syncedAt}`);
+      return;
+    }
     const { manifest, credential } = await teamCredential(root);
     const response = await fetch(`${manifest.coordinator.url}/api/snapshot`, { headers: { authorization: `Bearer ${credential.token}` } });
     console.log(`ATC team: ${manifest.repository.name}\nDeveloper: ${credential.developer}\nCoordinator: ${response.ok ? "online" : `HTTP ${response.status}`}`);
   } else if (command === "radar") {
+    const currentManifest = await readManifest(root);
+    if (currentManifest.version === 2) {
+      try {
+        const response = await fetch("http://127.0.0.1:3000/api/health");
+        const health = await response.json();
+        if (health.mode === "git" && health.repositoryId === currentManifest.repository.id) { console.log("Open http://127.0.0.1:3000 for your shared team Radar."); return; }
+      } catch {}
+      const server = await listenGit({ root });
+      console.log(`Open http://127.0.0.1:${server.address().port} for your shared team Radar. Keep this terminal open.`);
+      return;
+    }
     const { manifest, credential } = await teamCredential(root);
     console.log(`Open ${manifest.coordinator.url}/ and paste this private browser login token:\n${credential.token}\nDo not share or commit this token.`);
-  } else throw new Error("Usage: atc team <init|serve|invite|join|status|radar>");
+  } else throw new Error("Usage: atc team <init|serve|invite|join|connect|status|radar>");
 }
