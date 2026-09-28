@@ -19,6 +19,18 @@ test("MCP server publishes the complete coordination tool surface", async (t) =>
   const identity = response.result.tools[0].inputSchema;
   assert.deepEqual(identity.required, ["summary", "scopes"]);
   for (const field of ["agent", "agentName", "user", "githubAccount"]) assert.equal(identity.properties[field].type, "string");
+  assert.match(response.result.tools.find((tool) => tool.name === "message_agent").description, /Radar ref automatically/);
+});
+
+test("MCP initialization keeps Radar metadata out of code PRs", async (t) => {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./server.mjs", import.meta.url))], { stdio: ["pipe", "pipe", "pipe"] });
+  t.after(() => child.kill());
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { capabilities: {} } })}\n`);
+  const [chunk] = await once(child.stdout, "data");
+  const instructions = JSON.parse(chunk.toString().trim()).result.instructions;
+  assert.match(instructions, /refs\/notes\/atc-radar/);
+  assert.match(instructions, /never .*open a pull request for it/);
+  assert.match(instructions, /normal feature branches and PR workflow only for source-code changes/);
 });
 
 test("separate MCP processes register configured identities in one airspace", async (t) => {
