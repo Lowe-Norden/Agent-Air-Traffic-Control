@@ -3,7 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { credentialPath, manifestName, readManifest } from "../team-server/config.mjs";
+import { credentialPath, gitProfilePath, manifestName, readManifest } from "../team-server/config.mjs";
 
 const port = Number(process.env.ATC_PORT || 3000);
 const baseUrl = process.env.ATC_URL || `http://127.0.0.1:${port}`;
@@ -41,6 +41,10 @@ async function project() {
   try {
     await access(join(root, manifestName));
     const manifest = await readManifest(root);
+    if (manifest.version === 2) {
+      await access(gitProfilePath(manifest.repository.id)).catch(() => { throw new Error("ATC Git profile missing. Run `atc team connect --developer NAME`."); });
+      return { root, manifest };
+    }
     const credential = JSON.parse(await readFile(credentialPath(manifest.repository.id), "utf8"));
     if (credential.repositoryId !== manifest.repository.id || credential.coordinator !== manifest.coordinator.url || !credential.token) throw new Error("ATC team credential does not match this repository. Run `atc team join`.");
     return { root, manifest, credential };
@@ -72,14 +76,30 @@ async function ensureDaemon() {
   throw new Error(`ATC daemon did not start at ${baseUrl}`);
 }
 
+async function ensureGitDaemon(connected) {
+  const current = await health();
+  if (current?.mode === "git" && current.repositoryId === connected.manifest.repository.id) return;
+  if (current) throw new Error(`ATC port ${port} is serving another project. Stop it or choose another ATC_PORT.`);
+  const serverPath = fileURLToPath(new URL("../git-team/server.mjs", import.meta.url));
+  const child = spawn(process.execPath, [serverPath], { cwd: connected.root, env: { ...process.env, ATC_REPO: connected.root, ATC_PORT: String(port) }, detached: true, stdio: "ignore", windowsHide: true });
+  child.unref();
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const started = await health();
+    if (started?.mode === "git" && started.repositoryId === connected.manifest.repository.id) return;
+  }
+  throw new Error(`ATC Git Radar did not start at ${baseUrl}. Run atc team radar for diagnostics.`);
+}
+
 async function request(path, options = {}) {
   const connected = await project();
-  if (!connected.manifest) await ensureDaemon();
-  const url = connected.manifest?.coordinator.url || baseUrl;
+  if (connected.manifest?.version === 2) await ensureGitDaemon(connected);
+  else if (!connected.manifest) await ensureDaemon();
+  const url = connected.manifest?.version === 1 ? connected.manifest.coordinator.url : baseUrl;
   const headers = { ...(connected.credential ? { authorization: `Bearer ${connected.credential.token}` } : {}), ...(options.body ? { "content-type": "application/json" } : {}) };
   let response;
   try { response = await fetch(`${url}${path}`, { method: options.body ? "POST" : "GET", headers, ...(options.body ? { body: JSON.stringify(options.body) } : {}) }); }
-  catch { throw new Error("ATC coordinator unavailable; no write decision was obtained."); }
+  catch { throw new Error("ATC state unavailable; no write decision was obtained."); }
   const value = await response.json();
   if (!response.ok && response.status !== 409) throw new Error(value.error || `ATC HTTP ${response.status}`);
   return value;
@@ -89,7 +109,7 @@ const tools = [
   { name: "begin_task", description: "Announce this agent's task and intended file scopes, then receive the current shared airspace. Call this before editing. Agent identity can come from arguments or this MCP server's ATC_* environment variables.", inputSchema: { type: "object", required: ["summary", "scopes"], properties: { agent: { type: "string", description: "Harness, such as codex, claude-code, cursor, or custom" }, agentName: { type: "string", description: "This agent's display name, independent of its harness" }, user: { type: "string", description: "Developer operating this agent" }, githubAccount: { type: "string", description: "Optional GitHub login used by this agent; descriptive metadata, not authentication" }, summary: { type: "string", maxLength: 240 }, scopes: { type: "array", items: { type: "string" }, description: "Repository-relative paths or globs" }, symbols: { type: "array", items: { type: "string" } } } } },
   { name: "get_airspace", description: "Read active agents, tasks, scopes, collisions, and coordination messages for this project.", inputSchema: { type: "object", properties: {} } },
   { name: "check_write", description: "Ask ATC immediately before editing a repository-relative path. Obey a deny and coordinate with the conflicting agent.", inputSchema: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
-  { name: "heartbeat", description: "Renew the 90-second session lease and receive fresh shared context.", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["active", "idle"] } } } },
+  { name: "heartbeat", description: "Renew the session lease and receive fresh shared context. Git team mode batches presence updates across local agents.", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["active", "idle"] } } } },
   { name: "message_agent", description: "Send a concise coordination message to one active session or broadcast to all agents.", inputSchema: { type: "object", required: ["text"], properties: { to: { type: "string", description: "Session id or broadcast" }, text: { type: "string", maxLength: 1000 } } } },
   { name: "complete_task", description: "Complete this task, release its scopes, resolve its collisions, and close the session.", inputSchema: { type: "object", properties: { summary: { type: "string" } } } },
 ];
@@ -101,6 +121,7 @@ async function callTool(name, args) {
     const branch = (() => { try { return execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).trim() || "detached"; } catch { return "unknown"; } })();
     const agent = args.agent || process.env.ATC_HARNESS || "unknown";
     const result = await request("/api/tasks/begin", { body: { ...args, sessionId: sessionId || undefined, agent, agentName: args.agentName || process.env.ATC_AGENT_NAME || agent, user: args.user || process.env.ATC_DEVELOPER_NAME || process.env.USER || process.env.USERNAME || "local developer", githubAccount: args.githubAccount || process.env.ATC_GITHUB_ACCOUNT || null, branch, worktree: root, capabilities: { mcp: true, preWrite: false, postWrite: false } } });
+    if (result.decision === "deny") return result;
     sessionId = result.session.id;
     if (!heartbeatTimer) {
       heartbeatTimer = setInterval(() => {

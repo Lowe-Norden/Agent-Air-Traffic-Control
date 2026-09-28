@@ -13,8 +13,10 @@
   "files": [
     "packages/cli/*.mjs",
     "packages/daemon/*.mjs",
+    "packages/git-team/*.mjs",
     "packages/mcp-server/*.mjs",
     "packages/team-server/*.mjs",
+    "docs/*.md",
     "apps/web/index.html",
     "README.md",
     "LICENSE"

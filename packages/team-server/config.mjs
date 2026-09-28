@@ -5,9 +5,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const manifestName = ".atc-team.json";
+export const gitRadarRef = "refs/notes/atc-radar";
 
-export function gitRemote(root) {
-  return execFileSync("git", ["config", "--get", "remote.origin.url"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+export function gitRemote(root, remote = "origin") {
+  if (!/^[a-zA-Z0-9_-]+$/.test(remote)) throw new Error("Invalid Git remote name.");
+  return execFileSync("git", ["config", "--get", `remote.${remote}.url`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 }
 
 export function canonicalRemote(remote) {
@@ -34,11 +36,14 @@ export function coordinatorUrl(value) {
 
 export async function readManifest(root) {
   const manifest = JSON.parse(await readFile(join(root, manifestName), "utf8"));
-  if (manifest.version !== 1 || !manifest.repository?.id || !manifest.repository?.fingerprint || !manifest.coordinator?.url) throw new Error("Invalid ATC team manifest.");
-  if (manifest.repository.fingerprint !== canonicalRemote(gitRemote(root)) || manifest.repository.id !== repositoryId(gitRemote(root))) throw new Error("ATC team manifest does not match this repository's Git origin.");
-  coordinatorUrl(manifest.coordinator.url);
+  if (![1, 2].includes(manifest.version) || !manifest.repository?.id || !manifest.repository?.fingerprint) throw new Error("Invalid ATC team manifest.");
+  const remote = manifest.version === 2 ? manifest.git?.remote : "origin";
+  if (manifest.repository.fingerprint !== canonicalRemote(gitRemote(root, remote)) || manifest.repository.id !== repositoryId(gitRemote(root, remote))) throw new Error("ATC team manifest does not match this repository's Git remote.");
+  if (manifest.version === 1) coordinatorUrl(manifest.coordinator?.url);
+  else if (manifest.transport !== "git" || manifest.git?.ref !== gitRadarRef) throw new Error("Unsupported ATC Git transport or ref.");
   return manifest;
 }
 
 export function atcHome() { return process.env.ATC_HOME || join(homedir(), ".atc"); }
 export function credentialPath(repositoryId) { return join(atcHome(), "credentials", `${repositoryId}.json`); }
+export function gitProfilePath(repositoryId) { return join(atcHome(), "profiles", `${repositoryId}.json`); }

@@ -64,6 +64,17 @@ async function doctor() {
     const { readManifest } = await import("../team-server/config.mjs");
     const manifest = await readManifest(root);
     console.log(`Team project          ✓ ${manifest.repository.name} (${manifest.repository.id})`);
+    if (manifest.version === 2) {
+      console.log(`Git Radar ref         ${manifest.git.ref} (not a branch)`);
+      try {
+        const { GitRadarStore } = await import("../git-team/store.mjs");
+        const store = new GitRadarStore({ root, manifest });
+        const state = await store.refresh();
+        console.log(`Shared airspace       ✓ sequence ${state.sequence}; synced ${store.syncedAt}`);
+      } catch (error) { console.log(`Shared airspace       ✗ ${error.message}`); }
+      for (const item of detected()) console.log(`${item.label.padEnd(21)}${item.detected ? "detected; verify MCP registration" : "not detected"}`);
+      return;
+    }
     console.log(`Shared coordinator    ${manifest.coordinator.url}`);
     try {
       const { teamCredential } = await import("./team.mjs");

@@ -4,7 +4,36 @@ Real-time coordination for teams running multiple coding agents against the same
 
 > Git tells agents what happened. Agent Air Traffic Control tells them what is happening.
 
-ATC connects a Git project to one local coordination service. Agents use a universal MCP server to announce work, inspect other active tasks, check a path before editing, exchange coordination messages, and release their scope. Humans get a live, read-only radar and audit log.
+ATC connects a Git project to a local coordination service. Agents use a universal MCP server to announce work, inspect other active tasks, check a path before editing, exchange coordination messages, and release their scope. Humans get a read-only radar and audit log.
+
+## Git-only team Radar
+
+This mode needs no always-on ATC host. Each developer runs ATC and opens their own Radar at `http://127.0.0.1:3000`. ATC exchanges metadata through GitHub using normal Git fetch and push. It creates `refs/notes/atc-radar`, which is **not a branch** and cannot be merged as a normal pull request. It never commits Radar data to `main` or a feature branch.
+
+Install Node.js 22+ and ATC once on each machine:
+
+```bash
+npm install -g git+https://github.com/Lowe-Norden/Agent-Air-Traffic-Control.git
+atc install --developer Lowe
+```
+
+The owner runs this inside the target repository and commits the small manifest:
+
+```bash
+atc team init --transport git
+git add .atc-team.json
+git commit -m "Configure ATC Git Radar"
+git push
+atc team connect --developer Lowe
+atc doctor
+atc team radar
+```
+
+After pulling that commit, David runs `atc install --developer David`, `atc team connect --developer David`, `atc doctor`, and `atc team radar`. `team connect` proves Git read and push access with David's existing Git credentials. The MCP server also starts the local Radar process automatically on first use. Use `atc connect --harness claude-code --agent-name Scout --github-account david-login` to print an agent-specific MCP entry. Harness, agent name, developer name, and GitHub account are display fields; the Git credential determines actual push access. The same ATC installation can serve Codex, Claude Code, Cursor, and other MCP clients.
+
+The Radar checks for remote changes about every 30 seconds. Task starts, messages, and completions push immediately; active-agent presence is batched about every five minutes, with a twelve-minute lease. A disconnected machine cannot verify fresh remote work; write checks fail when Git is unavailable. MCP denials require agent cooperation unless a native pre-write hook is installed.
+
+Normal Git traffic is not a GitHub Actions minute charge. Radar commits can add Git history and may hit GitHub rate or repository-size guidance. A temporary notes-ref push in the ATC repository triggered zero Actions runs; verify workflow behavior and notes-ref permissions in your target repository before team-wide activation. See the [Git-native Radar specification](docs/git-native-radar-spec.md) for limitations and traffic estimates.
 
 ## Team setup
 
@@ -95,7 +124,7 @@ Each agent follows the same six-tool loop:
 
 MCP integrations are cooperative: they can return a clear denial and model-ready explanation, but only a native pre-write hook can physically prevent a write. The UI reports the actual capability; it does not claim universal enforcement.
 
-Local mode shares airspace among agents on one machine. Team mode shares one coordinator among developer machines.
+Local mode shares airspace among agents on one machine. Git team mode shares state through the notes ref; the earlier team mode shares one coordinator among developer machines.
 
 ## Development
 

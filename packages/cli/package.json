@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "bin": { "atc": "./cli.mjs" },
-  "scripts": { "build": "node --check cli.mjs && node --check team.mjs && node --check install.mjs", "check": "node --check cli.mjs && node --check team.mjs && node --check install.mjs", "test": "node --test cli.test.mjs team.test.mjs install.test.mjs" }
+  "scripts": { "build": "node --check cli.mjs && node --check team.mjs && node --check install.mjs", "check": "node --check cli.mjs && node --check team.mjs && node --check install.mjs", "test": "node --test cli.test.mjs team.test.mjs team-git.test.mjs install.test.mjs" }
 }
