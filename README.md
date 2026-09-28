@@ -66,13 +66,13 @@ pnpm install
 pnpm check
 pnpm test
 
-node packages/cli/cli.mjs install
+node packages/cli/cli.mjs install --developer YOUR_NAME
 cd /path/to/your/project
 node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs enable
 node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect
 ```
 
-Copy the printed `agent-air-traffic-control` MCP server entry into Codex, Claude Code, Cursor, or another MCP client. The first MCP call starts the daemon automatically. To run it explicitly:
+The installer registers the MCP server in detected Codex, Claude Code, and Cursor installations. For another MCP client, copy the `agent-air-traffic-control` entry printed by `connect`. The first MCP call starts the local daemon automatically. To run it explicitly:
 
 ```bash
 node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs start
