@@ -1,0 +1,11 @@
+{
+  "name": "@agent-atc/team-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node --check config.mjs && node --check server.mjs",
+    "check": "node --check config.mjs && node --check server.mjs",
+    "test": "node --test config.test.mjs server.test.mjs"
+  }
+}

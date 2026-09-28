@@ -1,13 +1,24 @@
 {
   "name": "agent-air-traffic-control",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Real-time coordination infrastructure for coding agents.",
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.15.1",
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "atc": "packages/cli/cli.mjs"
+  },
+  "files": [
+    "packages/cli/*.mjs",
+    "packages/daemon/*.mjs",
+    "packages/mcp-server/*.mjs",
+    "packages/team-server/*.mjs",
+    "apps/web/index.html",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "pnpm -r build",
     "check": "pnpm -r check",
