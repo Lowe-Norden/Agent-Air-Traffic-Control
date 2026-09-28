@@ -33,6 +33,8 @@ After pulling that commit, David runs `atc install --developer David`, `atc team
 
 The Radar checks for remote changes about every 30 seconds. Task starts, messages, and completions push immediately; active-agent presence is batched about every five minutes, with a twelve-minute lease. A disconnected machine cannot verify fresh remote work; write checks fail when Git is unavailable. MCP denials require agent cooperation unless a native pre-write hook is installed.
 
+Agents do not run Git commands for Radar traffic. The MCP instructions direct them to call `begin_task` to publish a claim, `get_airspace` to read others' work, `message_agent` to coordinate, and `complete_task` to release a claim. ATC alone fetches and pushes `refs/notes/atc-radar` in an isolated local cache. Agents continue to use ordinary feature branches and pull requests for code changes; they never open a PR for the Radar ref. MCP instructions guide participating agents but cannot stop an agent or human from running unrelated Git commands.
+
 Normal Git traffic is not a GitHub Actions minute charge. Radar commits can add Git history and may hit GitHub rate or repository-size guidance. A temporary notes-ref push in the ATC repository triggered zero Actions runs; verify workflow behavior and notes-ref permissions in your target repository before team-wide activation. See the [Git-native Radar specification](docs/git-native-radar-spec.md) for limitations and traffic estimates.
 
 ## Team setup

@@ -3,7 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { credentialPath, gitProfilePath, manifestName, readManifest } from "../team-server/config.mjs";
+import { credentialPath, gitProfilePath, gitRadarRef, manifestName, readManifest } from "../team-server/config.mjs";
 
 const port = Number(process.env.ATC_PORT || 3000);
 const baseUrl = process.env.ATC_URL || `http://127.0.0.1:${port}`;
@@ -106,11 +106,11 @@ async function request(path, options = {}) {
 }
 
 const tools = [
-  { name: "begin_task", description: "Announce this agent's task and intended file scopes, then receive the current shared airspace. Call this before editing. Agent identity can come from arguments or this MCP server's ATC_* environment variables.", inputSchema: { type: "object", required: ["summary", "scopes"], properties: { agent: { type: "string", description: "Harness, such as codex, claude-code, cursor, or custom" }, agentName: { type: "string", description: "This agent's display name, independent of its harness" }, user: { type: "string", description: "Developer operating this agent" }, githubAccount: { type: "string", description: "Optional GitHub login used by this agent; descriptive metadata, not authentication" }, summary: { type: "string", maxLength: 240 }, scopes: { type: "array", items: { type: "string" }, description: "Repository-relative paths or globs" }, symbols: { type: "array", items: { type: "string" } } } } },
-  { name: "get_airspace", description: "Read active agents, tasks, scopes, collisions, and coordination messages for this project.", inputSchema: { type: "object", properties: {} } },
+  { name: "begin_task", description: "Announce this agent's task and intended file scopes, then receive the current shared airspace. Call this before editing. In Git team mode, this tool publishes Radar metadata automatically; never commit it to a code branch or open a Radar PR. Agent identity can come from arguments or this MCP server's ATC_* environment variables.", inputSchema: { type: "object", required: ["summary", "scopes"], properties: { agent: { type: "string", description: "Harness, such as codex, claude-code, cursor, or custom" }, agentName: { type: "string", description: "This agent's display name, independent of its harness" }, user: { type: "string", description: "Developer operating this agent" }, githubAccount: { type: "string", description: "Optional GitHub login used by this agent; descriptive metadata, not authentication" }, summary: { type: "string", maxLength: 240 }, scopes: { type: "array", items: { type: "string" }, description: "Repository-relative paths or globs" }, symbols: { type: "array", items: { type: "string" } } } } },
+  { name: "get_airspace", description: "Read active agents, tasks, scopes, collisions, and coordination messages for this project. In Git team mode, ATC fetches the shared Radar ref automatically.", inputSchema: { type: "object", properties: {} } },
   { name: "check_write", description: "Ask ATC immediately before editing a repository-relative path. Obey a deny and coordinate with the conflicting agent.", inputSchema: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
   { name: "heartbeat", description: "Renew the session lease and receive fresh shared context. Git team mode batches presence updates across local agents.", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["active", "idle"] } } } },
-  { name: "message_agent", description: "Send a concise coordination message to one active session or broadcast to all agents.", inputSchema: { type: "object", required: ["text"], properties: { to: { type: "string", description: "Session id or broadcast" }, text: { type: "string", maxLength: 1000 } } } },
+  { name: "message_agent", description: "Send a concise coordination message to one active session or broadcast to all agents. In Git team mode, ATC publishes the message to the Radar ref automatically; do not use a PR for agent coordination.", inputSchema: { type: "object", required: ["text"], properties: { to: { type: "string", description: "Session id or broadcast" }, text: { type: "string", maxLength: 1000 } } } },
   { name: "complete_task", description: "Complete this task, release its scopes, resolve its collisions, and close the session.", inputSchema: { type: "object", properties: { summary: { type: "string" } } } },
 ];
 
@@ -141,7 +141,7 @@ async function callTool(name, args) {
 
 function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`); }
 async function handle(message) {
-  if (message.method === "initialize") { rootsSupported = !!message.params?.capabilities?.roots; return { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "agent-air-traffic-control", version: "0.1.0" }, instructions: "Begin each coding task with begin_task, check_write before editing, coordinate on deny, and call complete_task when done. ATC renews heartbeats while this MCP process is alive." }; }
+  if (message.method === "initialize") { rootsSupported = !!message.params?.capabilities?.roots; return { protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "agent-air-traffic-control", version: "0.1.0" }, instructions: `Begin each coding task with begin_task, check_write before editing, coordinate through message_agent on deny, and call complete_task when done. ATC renews heartbeats while this MCP process is alive. In Git team mode, ATC automatically fetches and pushes coordination metadata to ${gitRadarRef}. This ref is not a code branch: never check it out, commit to it manually, or open a pull request for it. Use the repository's normal feature branches and PR workflow only for source-code changes.` }; }
   if (message.method === "ping") return {};
   if (message.method === "tools/list") return { tools };
   if (message.method === "tools/call") {
