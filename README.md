@@ -40,6 +40,8 @@ Copy the printed `agent-air-traffic-control` MCP server entry into Codex, Claude
 node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs start
 ```
 
+For concurrent agents with individual names and GitHub logins, run the CLI's `connect` command separately for each MCP client, passing `--harness`, `--agent-name`, `--developer`, and `--github-account`. The login is a display label, not GitHub authentication. See [project onboarding](docs/onboarding.md).
+
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 ## Agent contract
@@ -54,6 +56,8 @@ Each agent follows the same six-tool loop:
 6. `complete_task` to close the session and release its scope.
 
 MCP integrations are cooperative: they can return a clear denial and model-ready explanation, but only a native pre-write hook can physically prevent a write. The UI reports the actual capability; it does not claim universal enforcement.
+
+This MVP shares airspace among agents on one machine. A second developer's machine requires a shared coordinator before both developers can see or coordinate with each other's agents.
 
 ## Development
 

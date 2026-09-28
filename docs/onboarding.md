@@ -39,7 +39,16 @@ node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect
 
 Add the `agent-air-traffic-control` server from that JSON to each MCP-capable agent. The command is portable across Codex, Claude Code, Cursor, and custom clients that accept the standard `command`, `args`, and `env` server shape.
 
-ATC starts automatically on the first tool call. You can also run the service explicitly with `atc start`. The dashboard is at `http://127.0.0.1:3000` and binds only to loopback by default.
+For concurrent agents, generate a separate entry for each MCP client or agent process. For example:
+
+```bash
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect --harness codex --agent-name Atlas --developer Nicolas --github-account atlas-bot
+node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs connect --harness claude-code --agent-name Scout --developer David --github-account scout-bot
+```
+
+Copy the first entry into Atlas's Codex MCP configuration and the second into Scout's Claude Code configuration. The labels are defaults for `begin_task`; agents can supply `agent`, `agentName`, `user`, or `githubAccount` in the tool call to override them. Each MCP process receives a distinct session ID, so agents can share a name or developer without being merged. GitHub login is optional, descriptive metadata only. ATC does not authenticate that login or alter the Git credentials used for commits and pull requests.
+
+ATC starts automatically on the first tool call. You can also run the service explicitly with `node /path/to/Agent-Air-Traffic-Control/packages/cli/cli.mjs start`. The dashboard is at `http://127.0.0.1:3000` and binds only to loopback by default.
 
 ## 4. Agent operating loop
 
@@ -53,6 +62,8 @@ Agent instructions should require:
 
 `begin_task` returns all active work and relevant messages, so each new agent starts with shared awareness. `message_agent` can address a session ID or `broadcast`.
 
+The current daemon is local to one developer machine. Agents on the same machine and enabled repository share its state; David's separate machine has its own state until a shared coordinator and sync are implemented. MCP calls are cooperative: an agent must call the tools to receive guidance, and native pre-write hooks are still planned.
+
 ## Diagnostics
 
 ```bash
@@ -63,4 +74,4 @@ Doctor reports whether the current project is connected, whether its daemon is l
 
 ## Security and privacy
 
-The daemon binds to `127.0.0.1`. Its persisted state contains repository identity, agent/user labels, branch/worktree names, declared scopes, file paths, task summaries, coordination messages, timestamps, and decisions. It does not accept or persist file content, prompts, transcripts, environment variables, secrets, or command output.
+The daemon binds to `127.0.0.1`. Its persisted state contains repository identity, agent/developer labels, optional reported GitHub logins, branch/worktree names, declared scopes, file paths, task summaries, coordination messages, timestamps, and decisions. It does not accept or persist file content, prompts, transcripts, environment variables, secrets, or command output.
