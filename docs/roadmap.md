@@ -17,17 +17,19 @@
 
 ## M2 — Stronger native integrations
 
-- [ ] Package and publish the CLI so setup is `npx agent-atc enable`.
+- [x] Package the CLI for installation directly from the ATC Git repository.
+- [ ] Publish a versioned CLI to a package registry.
 - [ ] Install Codex and Claude Code native pre-write hooks automatically.
 - [ ] Add post-write filesystem observation for non-hook clients.
-- [ ] Add process-aware heartbeats and automatic session shutdown.
+- [x] Renew leases while MCP is connected and complete sessions on normal shutdown.
 
 ## M3 — Team coordinator
 
-- [ ] Add authenticated multi-machine coordination and repository membership.
+- [x] Add an authenticated self-hosted team coordinator, one-use invitations, and repository membership.
 - [ ] Replace the local JSON event log with SQLite and retention controls.
 - [ ] Add ordered WebSocket resume and offline event reconciliation.
-- [ ] Demonstrate two developers on separate machines sharing one airspace.
+- [x] Exercise two cloned checkouts with distinct developer credentials and MCP processes against one coordinator.
+- [ ] Verify a live deployment across two physical developer machines.
 
 ## M4 — Dependency-aware beta
 
